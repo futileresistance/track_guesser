@@ -47,6 +47,9 @@ Thumbs.db
 
 server/__pycache__/
 server/services/__pycache__/
+server/services/spotify_service.py
 server/routes/__pycache__/
+server/routes/spotify_routes.py
 server/__pycache__/
 server/.cache
+test_spotify.py
