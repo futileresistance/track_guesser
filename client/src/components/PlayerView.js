@@ -104,6 +104,18 @@ function PlayerView() {
     totalPlayers: state.players.length
   });
 
+  // Calculate effective time limit for hard mode
+  const effectiveTimeLimit = state.difficulty === 'hard' ? state.totalTimeLimit + 5 : state.totalTimeLimit;
+  const inputDisabled = state.timeLeft === 0 || state.guess;
+  // In hard mode, input should only be disabled when timeLeft === 0 (after track+5s)
+  // For hard mode, we need to check if we're in the extended submission period
+  // In hard mode, timeLeft goes from 5 to 0, but submissions are allowed for 5 more seconds after that
+  // So we need to track if we're in the extended submission period
+  const isInExtendedSubmissionPeriod = state.difficulty === 'hard' && state.timeLeft === 0 && !state.guess;
+  // Only disable input if player has already submitted a guess
+  // Let the server handle time validation for hard mode's extended submission period
+  const isInputDisabled = state.guess;
+
   if (state.gameStatus === 'lobby') {
     return (
       <div className="player-view">
@@ -141,7 +153,7 @@ function PlayerView() {
               <h3>Your Tracks</h3>
               <div className="track-list">
                 {myTracks.map((track, index) => (
-                  <div key={index} className="track-item">
+                  <div key={index} className="track-item" style={{ display: 'flex', alignItems: 'center' }}>
                     {track.album?.images?.[2] && (
                       <img src={track.album.images[2].url} alt="Album" />
                     )}
@@ -151,6 +163,13 @@ function PlayerView() {
                         {track.artists.map(a => a.name).join(', ')}
                       </div>
                     </div>
+                    <button
+                      className="btn btn-danger"
+                      style={{ marginLeft: 'auto', fontSize: '12px', padding: '4px 10px' }}
+                      onClick={() => actions.removeTrack(track.id)}
+                    >
+                      Remove
+                    </button>
                   </div>
                 ))}
               </div>
@@ -172,7 +191,7 @@ function PlayerView() {
               <p><strong>Ready Players:</strong> {state.readyPlayers.length}/{state.players.length}</p>
               <p><strong>Total Tracks:</strong> {state.tracks.length}</p>
               <p style={{ fontSize: '14px', color: '#666' }}>
-                Game will start automatically when all players are ready!
+                Host will start the game when all players are ready!
               </p>
             </div>
             
@@ -219,6 +238,8 @@ function PlayerView() {
               <AudioPlayer 
                 track={state.currentTrack}
                 timeLeft={state.timeLeft}
+                totalTimeLimit={state.totalTimeLimit}
+                difficulty={state.difficulty}
                 isHost={false}
               />
             )}
@@ -233,13 +254,13 @@ function PlayerView() {
                 value={guess}
                 onChange={(e) => setGuess(e.target.value)}
                 placeholder="Enter song title..."
-                disabled={state.timeLeft === 0 || state.guess}
+                disabled={isInputDisabled}
               />
               <button 
                 type="submit" 
                 className="btn" 
                 style={{ width: '100%' }}
-                disabled={!guess.trim() || state.timeLeft === 0 || state.guess}
+                disabled={!guess.trim() || isInputDisabled}
               >
                 {state.guess ? '✅ Submitted!' : '🎯 Submit Guess'}
               </button>
@@ -248,6 +269,30 @@ function PlayerView() {
             {state.guess && (
               <div className="status-message status-info">
                 Your guess: <strong>{state.guess}</strong>
+              </div>
+            )}
+            
+            {state.guessResult && (
+              <div className={`status-message ${state.guessResult.correct ? 'status-success' : 'status-info'}`}>
+                <div style={{ marginBottom: '10px' }}>
+                  <strong>
+                    {state.guessResult.correct ? '✅ Correct!' : '❌ Not quite right'}
+                  </strong>
+                  {state.guessResult.points > 0 && (
+                    <span style={{ marginLeft: '10px' }}>
+                      +{state.guessResult.points} points
+                    </span>
+                  )}
+                </div>
+                
+                <div style={{ fontSize: '14px', textAlign: 'left' }}>
+                  <div>Artist: {state.guessResult.artistScore === 1 ? '✅' : '❌'} ({Math.round(state.guessResult.artistScore * 100)}%)</div>
+                  <div>Track: {Math.round(state.guessResult.trackScore * 100)}% match</div>
+                  <div>Total: {Math.round(state.guessResult.totalScore * 100)}% accuracy</div>
+                  {state.guessResult.speedBonus > 0 && (
+                    <div>Speed bonus: +{state.guessResult.speedBonus}%</div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -285,6 +330,30 @@ function PlayerView() {
                 onClick={() => navigate('/')}
               >
                 Play Again
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.gameStatus === 'gameFinished') {
+    return (
+      <div className="player-view">
+        <div className="container">
+          <div className="card" style={{ textAlign: 'center' }}>
+            <h2>🎯 Game is Finished!</h2>
+            <p style={{ fontSize: '18px', margin: '20px 0' }}>
+              All rounds have been completed. Waiting for the host to reveal the final results...
+            </p>
+            
+            <div style={{ marginTop: '30px' }}>
+              <button 
+                className="btn btn-danger"
+                onClick={handleLeaveGame}
+              >
+                Leave Game
               </button>
             </div>
           </div>

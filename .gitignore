@@ -44,3 +44,9 @@ Thumbs.db
 # Cache
 .cache/
 .npm/
+
+server/__pycache__/
+server/services/__pycache__/
+server/routes/__pycache__/
+server/__pycache__/
+server/.cache

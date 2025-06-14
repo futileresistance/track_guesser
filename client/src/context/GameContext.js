@@ -10,13 +10,15 @@ const initialState = {
   playerId: null,
   playerName: '',
   isHost: false,
-  gameStatus: 'lobby', // lobby, playing, finished
+  gameStatus: 'lobby', // lobby, playing, finished, gameFinished
   players: [],
   tracks: [],
   currentTrack: null,
   currentRound: 0,
   totalRounds: 0,
   timeLeft: 0,
+  totalTimeLimit: 15, // Total time limit for the round
+  difficulty: 'medium', // Current game difficulty
   userTracks: [],
   guess: '',
   score: 0,
@@ -26,7 +28,9 @@ const initialState = {
   shouldNavigate: null,
   readyPlayers: [], // Track which players are ready
   minTracksPerPlayer: 5, // Minimum tracks required per player
-  minPlayers: 2 // Minimum players required to start
+  minPlayers: 2, // Minimum players required to start
+  gameReadyToStart: false, // Track if game is ready to be started manually
+  guessResult: null, // Added to store guess result
 };
 
 const getInitialState = () => ({
@@ -66,6 +70,10 @@ function gameReducer(state, action) {
       };
     case 'SET_TIME_LEFT':
       return { ...state, timeLeft: action.payload };
+    case 'SET_TOTAL_TIME_LIMIT':
+      return { ...state, totalTimeLimit: action.payload };
+    case 'SET_DIFFICULTY':
+      return { ...state, difficulty: action.payload };
     case 'ADD_USER_TRACK':
       return { 
         ...state, 
@@ -95,11 +103,20 @@ function gameReducer(state, action) {
         ...state, 
         readyPlayers: state.readyPlayers.filter(id => id !== action.payload) 
       };
+    case 'SET_GAME_READY_TO_START':
+      return { ...state, gameReadyToStart: action.payload };
+    case 'SET_GUESS_RESULT':
+      return { ...state, guessResult: action.payload };
     case 'RESET_GAME':
       localStorage.removeItem('playerId');
       localStorage.removeItem('gameId');
       localStorage.removeItem('playerName');
       return { ...initialState, socket: state.socket };
+    case 'REMOVE_USER_TRACK':
+      return {
+        ...state,
+        userTracks: state.userTracks.filter(track => track.id !== action.payload)
+      };
     default:
       return state;
   }
@@ -175,6 +192,11 @@ export function GameProvider({ children }) {
       dispatch({ type: 'SET_READY_PLAYERS', payload: data.readyPlayers });
     });
 
+    socket.on('gameReadyToStart', (data) => {
+      console.log('🚀 Game ready to start:', data);
+      dispatch({ type: 'SET_GAME_READY_TO_START', payload: data.canStart });
+    });
+
     socket.on('gameStarted', (data) => {
       dispatch({ type: 'SET_GAME_STATUS', payload: 'playing' });
       dispatch({ type: 'SET_ROUND_INFO', payload: data.roundInfo });
@@ -185,7 +207,10 @@ export function GameProvider({ children }) {
       dispatch({ type: 'SET_CURRENT_TRACK', payload: data.track });
       dispatch({ type: 'SET_ROUND_INFO', payload: data.roundInfo });
       dispatch({ type: 'SET_TIME_LEFT', payload: data.timeLimit });
+      dispatch({ type: 'SET_TOTAL_TIME_LIMIT', payload: data.timeLimit });
+      dispatch({ type: 'SET_DIFFICULTY', payload: data.difficulty || 'medium' });
       dispatch({ type: 'SET_GUESS', payload: '' });
+      dispatch({ type: 'SET_GUESS_RESULT', payload: null });
     });
 
     socket.on('timeUpdate', (data) => {
@@ -199,6 +224,11 @@ export function GameProvider({ children }) {
     socket.on('gameEnd', (data) => {
       dispatch({ type: 'SET_GAME_STATUS', payload: 'finished' });
       dispatch({ type: 'UPDATE_LEADERBOARD', payload: data.finalLeaderboard });
+    });
+
+    socket.on('gameFinished', (data) => {
+      console.log('🎯 Game finished:', data);
+      dispatch({ type: 'SET_GAME_STATUS', payload: 'gameFinished' });
     });
 
     socket.on('gameEnded', (data) => {
@@ -231,7 +261,19 @@ export function GameProvider({ children }) {
     socket.on('guessResult', (data) => {
       console.log('🎯 Guess result received:', data);
       dispatch({ type: 'UPDATE_SCORE', payload: data.newScore });
-      // You could also show a notification here
+      
+      // Store detailed scoring information for display
+      dispatch({ 
+        type: 'SET_GUESS_RESULT', 
+        payload: {
+          correct: data.correct,
+          points: data.points,
+          artistScore: data.artistScore,
+          trackScore: data.trackScore,
+          totalScore: data.totalScore,
+          speedBonus: data.speedBonus
+        }
+      });
     });
 
     socket.on('leaderboardUpdate', (data) => {
@@ -254,17 +296,8 @@ export function GameProvider({ children }) {
 
   // Check if game can start automatically
   useEffect(() => {
-    if (state.gameStatus === 'lobby' && state.isHost) {
-      const canStart = 
-        state.players.length >= state.minPlayers &&
-        state.tracks.length >= (state.players.length * state.minTracksPerPlayer) &&
-        state.readyPlayers.length === state.players.length;
-      
-      if (canStart) {
-        // Auto-start the game when all conditions are met
-        actions.startGame();
-      }
-    }
+    // Removed auto-start logic - game now starts manually when host clicks Start Game button
+    // The server will emit 'gameReadyToStart' event when all players are ready
   }, [state.players, state.tracks, state.readyPlayers, state.gameStatus, state.isHost]);
 
   const actions = {
@@ -315,8 +348,11 @@ export function GameProvider({ children }) {
       });
     },
 
-    startGame: () => {
-      state.socket?.emit('startGame', { gameId: state.gameId });
+    startGame: (difficulty = 'medium') => {
+      state.socket?.emit('startGame', { 
+        gameId: state.gameId,
+        difficulty: difficulty 
+      });
     },
 
     submitGuess: (guess) => {
@@ -326,6 +362,7 @@ export function GameProvider({ children }) {
         guess: guess.trim()
       });
       dispatch({ type: 'SET_GUESS', payload: guess });
+      dispatch({ type: 'SET_GUESS_RESULT', payload: null });
     },
 
     nextRound: () => {
@@ -345,6 +382,27 @@ export function GameProvider({ children }) {
 
     clearError: () => {
       dispatch({ type: 'SET_ERROR', payload: null });
+    },
+
+    revealResults: () => {
+      state.socket?.emit('revealResults', { gameId: state.gameId });
+    },
+
+    removeTrack: (trackId) => {
+      const currentGameId = state.gameId || window.location.pathname.split('/').pop();
+      if (!currentGameId || !state.playerId) {
+        console.error('❌ Missing gameId or playerId for removeTrack:', {
+          gameId: currentGameId,
+          playerId: state.playerId
+        });
+        return;
+      }
+      state.socket?.emit('removeTrack', {
+        gameId: currentGameId,
+        playerId: state.playerId,
+        trackId
+      });
+      dispatch({ type: 'REMOVE_USER_TRACK', payload: trackId });
     }
   };
 

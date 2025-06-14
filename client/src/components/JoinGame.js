@@ -36,12 +36,11 @@ function JoinGame() {
       return;
     }
 
-    // Add random suffix for testing multiple players
-    const randomSuffix = Math.floor(Math.random() * 1000);
-    const testPlayerName = `${playerName.trim()}_${randomSuffix}`;
+    // Use player name exactly as entered
+    const finalPlayerName = playerName.trim();
     
-    console.log(`🎮 Joining game as: ${testPlayerName}`);
-    actions.joinGame(gameId, testPlayerName);
+    console.log(`🎮 Joining game as: ${finalPlayerName}`);
+    actions.joinGame(gameId, finalPlayerName);
   };
 
   const handleCreateNew = () => {
@@ -134,7 +133,7 @@ function JoinGame() {
         {/* Debug info */}
         <div style={{ marginTop: '20px', fontSize: '12px', color: '#666', textAlign: 'center' }}>
           <p><strong>Debug Info:</strong></p>
-          <p>• Random suffix will be added to player name for testing</p>
+          <p>• Player names are used exactly as entered</p>
           <p>• Use incognito window for true multi-player testing</p>
           <p>• Or use the "Clear Storage" button on home page</p>
         </div>

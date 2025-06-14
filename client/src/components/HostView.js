@@ -10,6 +10,10 @@ function HostView() {
   const navigate = useNavigate();
   const { state, actions } = useGame();
   const [joinUrl, setJoinUrl] = useState('');
+  const [difficulty, setDifficulty] = useState('medium'); // Default to medium
+  const [autoNextRoundTimer, setAutoNextRoundTimer] = useState(null);
+  const [showAutoNextMsg, setShowAutoNextMsg] = useState(false);
+  const [showRevealButton, setShowRevealButton] = useState(false);
 
   // Debug logging for track counts
   useEffect(() => {
@@ -55,6 +59,58 @@ function HostView() {
     state.players.length >= state.minPlayers &&
     state.tracks.length >= (state.players.length * state.minTracksPerPlayer) &&
     state.readyPlayers.length === state.players.length;
+
+  const handleStartGame = () => {
+    actions.startGame(difficulty);
+  };
+
+  // Automatically start next round after 6 seconds when round ends
+  // For hard mode, add 5 extra seconds to account for extended submission time
+  useEffect(() => {
+    if (
+      state.gameStatus === 'playing' &&
+      state.timeLeft === 0 &&
+      state.currentRound < state.totalRounds
+    ) {
+      setShowAutoNextMsg(true);
+      const delay = state.difficulty === 'hard' ? 11000 : 6000; // 11s for hard mode (6s + 5s), 6s for others
+      const timer = setTimeout(() => {
+        handleNextRound();
+        setShowAutoNextMsg(false);
+      }, delay);
+      setAutoNextRoundTimer(timer);
+      return () => clearTimeout(timer);
+    } else {
+      setShowAutoNextMsg(false);
+      if (autoNextRoundTimer) clearTimeout(autoNextRoundTimer);
+    }
+    // eslint-disable-next-line
+  }, [state.timeLeft, state.gameStatus, state.currentRound, state.totalRounds, state.difficulty]);
+
+  // Show reveal button automatically after last round
+  useEffect(() => {
+    if (state.gameStatus === 'gameFinished') {
+      setShowRevealButton(true);
+    } else {
+      setShowRevealButton(false);
+    }
+  }, [state.gameStatus]);
+
+  // Automatically finish game after last round ends
+  // For hard mode, add 5 extra seconds to account for extended submission time
+  useEffect(() => {
+    if (
+      state.gameStatus === 'playing' &&
+      state.timeLeft === 0 &&
+      state.currentRound === state.totalRounds
+    ) {
+      const delay = state.difficulty === 'hard' ? 7000 : 2000; // 7s for hard mode (2s + 5s), 2s for others
+      const finishTimer = setTimeout(() => {
+        actions.nextRound();
+      }, delay);
+      return () => clearTimeout(finishTimer);
+    }
+  }, [state.timeLeft, state.currentRound, state.totalRounds, state.gameStatus, actions, state.difficulty]);
 
   if (state.gameStatus === 'lobby') {
     return (
@@ -117,18 +173,62 @@ function HostView() {
               <p><strong>Total Tracks:</strong> {state.tracks.length}</p>
               <p><strong>Ready Players:</strong> {state.readyPlayers.length}/{state.players.length}</p>
               <p style={{ fontSize: '14px', color: '#666' }}>
-                Game will start automatically when all players are ready and have enough tracks!
+                {state.gameReadyToStart 
+                  ? 'All players are ready! Click "Start Game" to begin.' 
+                  : 'Waiting for all players to be ready before you can start the game!'
+                }
+              </p>
+            </div>
+
+            {/* Difficulty Mode Selection */}
+            <div style={{ marginTop: '20px', textAlign: 'center' }}>
+              <h4 style={{ marginBottom: '15px' }}>🎯 Difficulty Mode</h4>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  className={`btn ${difficulty === 'easy' ? 'btn-success' : 'btn-secondary'}`}
+                  onClick={() => setDifficulty('easy')}
+                  style={{ minWidth: '100px' }}
+                >
+                  🟢 Easy (30s)
+                </button>
+                <button
+                  className={`btn ${difficulty === 'medium' ? 'btn-success' : 'btn-secondary'}`}
+                  onClick={() => setDifficulty('medium')}
+                  style={{ minWidth: '100px' }}
+                >
+                  🟡 Medium (15s)
+                </button>
+                <button
+                  className={`btn ${difficulty === 'hard' ? 'btn-success' : 'btn-secondary'}`}
+                  onClick={() => setDifficulty('hard')}
+                  style={{ minWidth: '100px' }}
+                >
+                  🔴 Hard (5s)
+                </button>
+              </div>
+              <p style={{ fontSize: '12px', color: '#666', marginTop: '10px' }}>
+                Players will have {difficulty === 'easy' ? '30' : difficulty === 'medium' ? '15' : '5'} seconds to guess each track
               </p>
             </div>
             
             <div style={{ marginTop: '30px', textAlign: 'center' }}>
-              <button 
-                className={`btn ${canStartGame ? 'btn-success' : ''}`}
-                disabled={!canStartGame}
-                style={{ marginRight: '10px' }}
-              >
-                {canStartGame ? '🚀 Starting...' : '⏳ Waiting...'}
-              </button>
+              {state.gameReadyToStart ? (
+                <button 
+                  className="btn btn-success"
+                  onClick={handleStartGame}
+                  style={{ marginRight: '10px' }}
+                >
+                  🚀 Start Game
+                </button>
+              ) : (
+                <button 
+                  className="btn"
+                  disabled={true}
+                  style={{ marginRight: '10px' }}
+                >
+                  ⏳ Waiting for all players to be ready...
+                </button>
+              )}
               
               <button 
                 className="btn btn-danger"
@@ -185,6 +285,8 @@ function HostView() {
                   <AudioPlayer 
                     track={state.currentTrack}
                     timeLeft={state.timeLeft}
+                    totalTimeLimit={state.totalTimeLimit}
+                    difficulty={state.difficulty}
                     isHost={true}
                   />
                 </div>
@@ -218,6 +320,40 @@ function HostView() {
     );
   }
 
+  if (state.gameStatus === 'gameFinished') {
+    return (
+      <div className="host-view">
+        <div className="container">
+          <div className="card" style={{ textAlign: 'center' }}>
+            <h2>🎯 Game is Finished!</h2>
+            <p style={{ fontSize: '18px', margin: '20px 0' }}>
+              All rounds have been completed. Ready to see the final results?
+            </p>
+            {showRevealButton && (
+              <div style={{ marginTop: '30px' }}>
+                <button 
+                  className="btn btn-success"
+                  onClick={actions.revealResults}
+                  style={{ marginRight: '10px' }}
+                >
+                  🏆 Reveal Results
+                </button>
+              </div>
+            )}
+            <div style={{ marginTop: '30px' }}>
+              <button 
+                className="btn btn-danger"
+                onClick={handleEndGame}
+              >
+                End Game
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (state.gameStatus === 'finished') {
     return (
       <div className="host-view">
@@ -236,6 +372,15 @@ function HostView() {
             </div>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (state.gameStatus === 'playing' && showAutoNextMsg && state.timeLeft === 0 && state.currentRound < state.totalRounds) {
+    const nextRoundDelay = state.difficulty === 'hard' ? 11 : 6;
+    return (
+      <div style={{ color: '#667eea', fontWeight: 'bold', margin: '20px 0', fontSize: '18px', textAlign: 'center' }}>
+        Next round will start automatically in {nextRoundDelay} seconds...
       </div>
     );
   }

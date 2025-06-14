@@ -1,11 +1,35 @@
 import React, { useRef, useEffect, useState } from 'react';
 
-function AudioPlayer({ track, timeLeft, isHost }) {
+function AudioPlayer({ track, timeLeft, isHost, totalTimeLimit = 15, difficulty = 'medium' }) {
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.7);
+  const [gradient, setGradient] = useState('');
+
+  // Calculate effective time limit (add 5 seconds for hard mode)
+  const effectiveTimeLimit = difficulty === 'hard' ? totalTimeLimit + 5 : totalTimeLimit;
+
+  // Generate random gradient colors
+  const generateRandomGradient = () => {
+    const colors = [
+      '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+      '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
+      '#F8C471', '#82E0AA', '#F1948A', '#85C1E9', '#D7BDE2'
+    ];
+    
+    const color1 = colors[Math.floor(Math.random() * colors.length)];
+    const color2 = colors[Math.floor(Math.random() * colors.length)];
+    const angle = Math.floor(Math.random() * 360);
+    
+    return `linear-gradient(${angle}deg, ${color1}, ${color2})`;
+  };
+
+  useEffect(() => {
+    // Generate new gradient when track changes
+    setGradient(generateRandomGradient());
+  }, [track]);
 
   useEffect(() => {
     if (track && audioRef.current) {
@@ -83,24 +107,29 @@ function AudioPlayer({ track, timeLeft, isHost }) {
   return (
     <div className="audio-player">
       <div className="track-info">
-        {track.album?.images?.[1] && (
-          <img 
-            src={track.album.images[1].url} 
-            alt="Album cover"
-            style={{ 
-              width: '150px', 
-              height: '150px', 
-              borderRadius: '10px',
-              margin: '0 auto 20px'
-            }}
-          />
-        )}
+        <div 
+          style={{ 
+            width: '150px', 
+            height: '150px', 
+            borderRadius: '10px',
+            margin: '0 auto 20px',
+            background: gradient,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '48px',
+            color: 'rgba(255, 255, 255, 0.8)',
+            textShadow: '2px 2px 4px rgba(0, 0, 0, 0.3)'
+          }}
+        >
+          <span className="vibrate-note">🎵</span>
+        </div>
         
         {timeLeft === 0 && (
           <div>
             <h3>{track.name}</h3>
             <p>{Array.isArray(track.artists) ? track.artists.map(a => a.name).join(', ') : ''}</p>
-            <p style={{ fontSize: '14px', color: '#666' }}>{track.album?.name}</p>
+            <p style={{ fontSize: '14px', color: '#666' }}></p>
           </div>
         )}
       </div>
@@ -113,25 +142,14 @@ function AudioPlayer({ track, timeLeft, isHost }) {
           onPause={() => setIsPlaying(false)}
         />
         
-        <div className="playback-controls">
-          <button 
-            className="btn"
-            onClick={togglePlayPause}
-            disabled={timeLeft === 0}
-            style={{ 
-              borderRadius: '50%', 
-              width: '60px', 
-              height: '60px',
-              fontSize: '24px'
-            }}
-          >
-            {isPlaying ? '⏸️' : '▶️'}
-          </button>
-        </div>
-        
         <div className="time-display" style={{ margin: '15px 0' }}>
           <span style={{ fontSize: '18px', fontWeight: 'bold' }}>
             Time Left: {timeLeft}s
+            {difficulty === 'hard' && (
+              <span style={{ fontSize: '14px', color: '#666', marginLeft: '10px' }}>
+                (+5s submission time)
+              </span>
+            )}
           </span>
         </div>
         
@@ -139,7 +157,8 @@ function AudioPlayer({ track, timeLeft, isHost }) {
           <div 
             className="progress-fill" 
             style={{ 
-              width: duration ? `${(currentTime / duration) * 100}%` : '0%'
+              width: `${((effectiveTimeLimit - timeLeft) / effectiveTimeLimit) * 100}%`,
+              backgroundColor: timeLeft <= 5 ? '#dc3545' : timeLeft <= 10 ? '#ffc107' : '#28a745'
             }}
           ></div>
         </div>
@@ -151,8 +170,8 @@ function AudioPlayer({ track, timeLeft, isHost }) {
           color: '#666',
           marginTop: '5px'
         }}>
-          <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(duration)}</span>
+          <span>Time Used: {effectiveTimeLimit - timeLeft}s</span>
+          <span>Total: {effectiveTimeLimit}s</span>
         </div>
         
         {isHost && (

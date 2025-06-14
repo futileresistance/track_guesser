@@ -272,7 +272,7 @@ async def setReady(sid, data):
             "readyPlayers": ready_players
         }, room=game_id)
         
-        # Check if game can start automatically
+        # Check if game can be started (but don't auto-start)
         min_players = 2
         total_players = len(game['players'])
         all_ready = len(ready_players) == total_players
@@ -284,10 +284,21 @@ async def setReady(sid, data):
         
         print(f"🚀 Game start check: total_players={total_players}, all_ready={all_ready}, can_start={can_start}")
         
+        # Notify host that game can be started (instead of auto-starting)
         if can_start:
-            # Auto-start the game
-            print(f"🚀 Auto-starting game {game_id}")
-            await startGame(sid, {"gameId": game_id})
+            print(f"🚀 Game ready to start - notifying host")
+            await sio.emit('gameReadyToStart', {
+                "canStart": True,
+                "readyPlayers": ready_players,
+                "totalPlayers": total_players
+            }, room=game_id)
+        else:
+            # Notify that game is not ready to start
+            await sio.emit('gameReadyToStart', {
+                "canStart": False,
+                "readyPlayers": ready_players,
+                "totalPlayers": total_players
+            }, room=game_id)
         
     except Exception as e:
         print(f"❌ Error setting ready status: {e}")
@@ -300,10 +311,23 @@ async def startGame(sid, data):
     try:
         print(f"🚀 START GAME REQUEST: {sid}")
         game_id = data.get('gameId')
+        difficulty = data.get('difficulty', 'medium')
         
         if not game_id:
             await sio.emit('error', {"message": "Game ID is required."}, room=sid)
             return
+        
+        # Update game difficulty and time limit
+        game = game_manager.get_game(game_id)
+        if game:
+            time_limits = {
+                'easy': 30,
+                'medium': 15,
+                'hard': 5
+            }
+            game['time_limit'] = time_limits.get(difficulty, 15)
+            game['difficulty'] = difficulty
+            print(f"🎯 Set difficulty to {difficulty} with {game['time_limit']}s time limit")
             
         result = await game_manager.start_game(game_id)
         
@@ -334,7 +358,8 @@ async def startGame(sid, data):
                 "current": round_data['current_round'],
                 "total": round_data['total_rounds']
             },
-            "timeLimit": round_data['time_limit']
+            "timeLimit": round_data['time_limit'],
+            "difficulty": game.get('difficulty', 'medium')
         }, room=game_id)
         
         # Start the countdown timer for this round
@@ -364,11 +389,15 @@ async def submitGuess(sid, data):
         # Process guess using GameManager
         result = game_manager.submit_guess(game_id, player_id, guess)
         
-        # Notify the player about their guess result
+        # Notify the player about their guess result with detailed scoring
         await sio.emit('guessResult', {
             "correct": result['correct'],
             "points": result['points'],
-            "newScore": result['new_score']
+            "newScore": result['new_score'],
+            "artistScore": result['artist_score'],
+            "trackScore": result['track_score'],
+            "totalScore": result['total_score'],
+            "speedBonus": result['speed_bonus']
         }, room=sid)
         
         # Update leaderboard for all players
@@ -377,7 +406,7 @@ async def submitGuess(sid, data):
             "leaderboard": leaderboard
         }, room=game_id)
         
-        print(f"✅ Guess processed: {result['correct']}, Points: {result['points']}")
+        print(f"✅ Guess processed: {result['correct']}, Points: {result['points']}, Artist: {result['artist_score']}, Track: {result['track_score']}, Total: {result['total_score']}")
         
     except ValueError as ve:
         print(f"❌ Error submitting guess (ValueError): {ve}")
@@ -407,10 +436,11 @@ async def nextRound(sid, data):
         
         # Check if game is finished
         if round_data.get('game_finished', False):
-            # End the game
-            result = await game_manager.end_game(game_id)
-            await sio.emit('gameEnd', {
-                "finalLeaderboard": result['leaderboard']
+            # Instead of ending the game, notify that it's finished
+            await sio.emit('gameFinished', {
+                "message": "Game is finished!",
+                "currentRound": round_data['current_round'],
+                "totalRounds": round_data['total_rounds']
             }, room=game_id)
             return
         
@@ -421,7 +451,8 @@ async def nextRound(sid, data):
                 "current": round_data['current_round'],
                 "total": round_data['total_rounds']
             },
-            "timeLimit": round_data['time_limit']
+            "timeLimit": round_data['time_limit'],
+            "difficulty": game.get('difficulty', 'medium')
         }, room=game_id)
         
         # Start the countdown timer for this round
@@ -432,6 +463,30 @@ async def nextRound(sid, data):
     except Exception as e:
         print(f"❌ Error advancing round: {e}")
         await sio.emit('error', {"message": "Failed to advance round. Please try again."}, room=sid)
+
+@sio.event
+async def revealResults(sid, data):
+    try:
+        print(f"🏆 REVEAL RESULTS REQUEST: {sid}")
+        game_id = data.get('gameId')
+        
+        if not game_id:
+            await sio.emit('error', {"message": "Game ID is required."}, room=sid)
+            return
+            
+        # End the game and get final results
+        result = await game_manager.end_game(game_id)
+        
+        # Send final results to all players
+        await sio.emit('gameEnd', {
+            "finalLeaderboard": result['leaderboard']
+        }, room=game_id)
+        
+        print(f"✅ Results revealed for game {game_id}")
+        
+    except Exception as e:
+        print(f"❌ Error revealing results: {e}")
+        await sio.emit('error', {"message": "Failed to reveal results. Please try again."}, room=sid)
 
 @sio.event
 async def leaveGame(sid, data):
